@@ -9,7 +9,7 @@ clang -fobjc-arc -O2 -Wall -Wextra -Werror -framework AppKit \
 "$SOURCE/build/make-icon" "$SOURCE/build/LogoBeat.iconset"
 iconutil -c icns "$SOURCE/build/LogoBeat.iconset" -o "$APP/Contents/Resources/LogoBeat.icns"
 clang -fobjc-arc -O2 -Wall -Wextra -Werror -Wno-unused-parameter \
-    -mmacosx-version-min=14.4 -framework AppKit -framework CoreAudio -framework IOKit \
+    -mmacosx-version-min=14.4 -framework AppKit -framework CoreAudio -framework IOKit -framework ServiceManagement \
     "$SOURCE/main.m" "$SOURCE/Playful.m" -o "$APP/Contents/MacOS/LogoBeat"
 plutil -lint "$APP/Contents/Info.plist"
 codesign --force --sign - "$APP"

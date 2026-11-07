@@ -46,6 +46,13 @@ then choose **Start** from the waveform icon in the menu bar.
   retrying.
 - **Quit** restores the mapping before exiting. If restoration fails, the app
   stays open and preserves its backup.
+- **Launch at login** is opt-in and uses macOS's native login-item service.
+  Nothing is registered automatically. Enable the option to launch Logo Beat
+  when you log in; disable it to remove that registration without stopping
+  the current session. If it says **approval needed**, allow it under
+  **System Settings > General > Login Items & Extensions**, or click again to
+  cancel the pending request. Registration failures are shown explicitly and
+  the checkmark reflects macOS's actual state, not a saved preference.
 - After sleep, screen sleep, or locking the Mac, choose **Start** to resume.
   Low Power Mode prevents starting.
 
@@ -57,6 +64,7 @@ one second restores the normal brightness mapping while listening continues.
 | Feature | How to use it |
 | --- | --- |
 | DJ pulses | Choose **Animation > DJ pulses** for softened pulses on detected audio onsets, with a quieter glow between them. |
+| Automatic | Choose **Animation > Automatic** for gentle breathing during silence and dynamic music response during playback. Switching back to breathing waits for more than one second of silence to avoid flickering between modes. |
 | Breathing Mac | Choose **Animation > Breathing Mac** to follow music and breathe gently during silence. Alternatively, enable **Breathe when music pauses** for any mode. |
 | Mood presets | Choose **Chill** for slower transitions and a 180-nit ceiling, **Party** for DJ pulses up to 300 nits, or **Heartbeat** for paired swells up to 240 nits. |
 | Dancing icon | The menu-bar waveform bounces with playback volume. Toggle **Dancing menu-bar icon** to return to a static icon. |
@@ -65,7 +73,9 @@ one second restores the normal brightness mapping while listening continues.
 | MacBook preview | **Open Playground...** shows a miniature MacBook light show, audio bars, requested brightness, and game feedback. |
 
 Mood presets also select a matching animation: Chill and Heartbeat use Volume;
-Party uses DJ pulses. You can change the animation afterward. Animation, mood,
+Party uses DJ pulses. **Automatic** stays selected when changing moods.
+Automatic uses DJ-style dynamics (or Heartbeat's paired swells) during music,
+and breathing during silence. You can change the animation afterward. Animation, mood,
 idle-breathing, and dancing-icon preferences are saved locally.
 
 The rhythm game uses audio-onset detection, not exact musical tempo analysis.
@@ -113,6 +123,8 @@ Local runtime files live in `~/Library/Application Support/LogoBeat/`:
 - `app.log`: startup, stop, restoration, and error messages.
 
 Preferences are saved in the local `local.logobeat` defaults domain.
+Login launch registration is managed by macOS rather than this preferences
+file. Ad-hoc signed rebuilds may require macOS to approve the updated app again.
 These files and preferences are outside this repository and are not uploaded.
 
 Private APIs may change with macOS updates. A crash or forced termination can
@@ -140,7 +152,9 @@ Run the installed app's self-tests without starting capture:
 The tests cover mode behavior, brightness bounds, transition pacing, Morse
 encoding and cancellation, rhythm scoring, repeat-key handling, native menu
 validation, and controller restoration using a fake brightness client. They
-do not open a window, capture playback, or modify the real logo.
+also verify automatic silence/music transitions and login-item state/error
+handling with a fake service. They do not register a real login item, open a
+window, capture playback, or modify the real logo.
 `build.sh` also renders an off-screen preview to
 `build/playground-preview.png`. A live check on supported hardware is still
 needed to assess timing, room-light limitations, and the complete window UX.

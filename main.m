@@ -9,6 +9,16 @@
 #import <math.h>
 #import <signal.h>
 #import "Playful.h"
+#import <ServiceManagement/ServiceManagement.h>
+
+@protocol LBLoginService <NSObject>
+@property(readonly) SMAppServiceStatus status;
+- (BOOL)registerAndReturnError:(NSError **)error;
+- (BOOL)unregisterAndReturnError:(NSError **)error;
+@end
+
+@interface SMAppService (LBLoginService) <LBLoginService>
+@end
 
 @protocol BrightnessClient <NSObject>
 - (id)copyPropertyForKey:(NSString *)key NS_RETURNS_RETAINED;
@@ -80,6 +90,7 @@ static float AudioLevel(const AudioBufferList *input) {
 @property LBPlaygroundView *playground;
 @property NSButton *gameButton;
 @property NSButton *tapButton;
+@property id<LBLoginService> loginService;
 @property dispatch_source_t termination;
 - (BOOL)restore;
 - (void)stop;
@@ -95,7 +106,43 @@ static float AudioLevel(const AudioBufferList *input) {
     if (item.action == @selector(selectMood:)) item.state = item.tag == self.animator.mood ? NSControlStateValueOn : NSControlStateValueOff;
     if (item.action == @selector(toggleBreathing)) item.state = self.animator.idleBreathing ? NSControlStateValueOn : NSControlStateValueOff;
     if (item.action == @selector(toggleDancing)) item.state = self.dancingIcon ? NSControlStateValueOn : NSControlStateValueOff;
+    if (item.action == @selector(toggleLaunchAtLogin)) {
+        SMAppServiceStatus status = self.loginService.status;
+        item.title = status == SMAppServiceStatusRequiresApproval
+            ? @"Launch at login (approval needed)" : @"Launch at login";
+        item.state = status == SMAppServiceStatusEnabled ? NSControlStateValueOn :
+            status == SMAppServiceStatusRequiresApproval ? NSControlStateValueMixed : NSControlStateValueOff;
+        return status != SMAppServiceStatusNotFound;
+    }
     return YES;
+}
+
+- (void)showLoginMessage:(NSString *)message {
+    NSLog(@"Launch at login: %@", message);
+    NSAlert *alert = [NSAlert new];
+    alert.messageText = @"Launch at login";
+    alert.informativeText = message;
+    [NSApp activateIgnoringOtherApps:YES];
+    [alert runModal];
+}
+
+- (void)toggleLaunchAtLogin {
+    SMAppServiceStatus status = self.loginService.status;
+    if (status == SMAppServiceStatusNotFound) {
+        [self showLoginMessage:@"macOS could not find the signed app. Rebuild and open the installed copy before enabling login launch."];
+        return;
+    }
+    NSError *error = nil;
+    BOOL registered = status == SMAppServiceStatusEnabled || status == SMAppServiceStatusRequiresApproval;
+    BOOL success = registered ? [self.loginService unregisterAndReturnError:&error]
+                              : [self.loginService registerAndReturnError:&error];
+    [self updateControls];
+    if (!success) {
+        [self showLoginMessage:[NSString stringWithFormat:@"Could not %@ login launch: %@",
+                               registered ? @"disable" : @"enable", error.localizedDescription]];
+    } else if (self.loginService.status == SMAppServiceStatusRequiresApproval) {
+        [self showLoginMessage:@"macOS needs approval before Logo Beat can launch at login. Allow it in System Settings > General > Login Items & Extensions. Click the menu option again to cancel the pending registration."];
+    }
 }
 
 - (void)savePreferences {
@@ -114,7 +161,9 @@ static float AudioLevel(const AudioBufferList *input) {
 
 - (void)selectMood:(NSMenuItem *)item {
     self.animator.mood = item.tag;
-    self.animator.mode = item.tag == LBMoodParty ? LBAnimationDJ : LBAnimationVolume;
+    if (self.animator.mode != LBAnimationAutomatic) {
+        self.animator.mode = item.tag == LBMoodParty ? LBAnimationDJ : LBAnimationVolume;
+    }
     [self savePreferences];
 }
 
@@ -228,7 +277,8 @@ static float AudioLevel(const AudioBufferList *input) {
     self.playground.beatAge = time - self.animator.lastBeat;
     self.playground.controlsLight = self.running && self.animator.controlsLight;
     self.playground.caption = self.running
-        ? [NSString stringWithFormat:@"%@ / %@ - %@", LBMoodName(self.animator.mood), LBModeName(self.animator.mode),
+        ? [NSString stringWithFormat:@"%@ / %@ - %@", LBMoodName(self.animator.mood),
+           self.animator.breathing ? @"Breathing" : LBModeName(self.animator.mode),
            self.animator.morseActive ? @"Morse message" : self.animator.controlsLight
            ? [NSString stringWithFormat:@"%.0f nits requested", self.nits] : @"normal logo brightness"]
         : @"Stopped - normal logo brightness";
@@ -398,7 +448,8 @@ static float AudioLevel(const AudioBufferList *input) {
         @kAudioAggregateDeviceNameKey: @"Logo Beat (private)",
         @kAudioAggregateDeviceUIDKey: NSUUID.UUID.UUIDString,
         @kAudioAggregateDeviceIsPrivateKey: @YES,
-        @kAudioAggregateDeviceTapAutoStartKey: @YES,
+        // Do not wait for first playback before starting idle breathing.
+        @kAudioAggregateDeviceTapAutoStartKey: @NO,
         @kAudioAggregateDeviceTapListKey: @[@{
             @kAudioSubTapUIDKey: description.UUID.UUIDString,
             @kAudioSubTapDriftCompensationKey: @YES
@@ -457,7 +508,8 @@ static float AudioLevel(const AudioBufferList *input) {
         self.status.title = self.animator.morseActive
             ? [NSString stringWithFormat:@"Morse message - %.0fs left", self.animator.morseRemaining]
             : [NSString stringWithFormat:@"%@ / %@ - %.0f nits requested",
-               LBMoodName(self.animator.mood), LBModeName(self.animator.mode), self.nits];
+               LBMoodName(self.animator.mood),
+               self.animator.breathing ? @"Breathing" : LBModeName(self.animator.mode), self.nits];
     }
     if (self.dancingIcon && now - self.lastIconUpdate >= 0.1) {
         self.lastIconUpdate = now;
@@ -476,7 +528,8 @@ static float AudioLevel(const AudioBufferList *input) {
                                 @"level": @(level), @"requestedNits": @(self.nits),
                                 @"controlsLogo": @(self.original != nil),
                                 @"mode": LBModeName(self.animator.mode), @"mood": LBMoodName(self.animator.mood),
-                                @"morseActive": @(self.animator.morseActive), @"gameActive": @(self.game.active)};
+                                @"morseActive": @(self.animator.morseActive), @"gameActive": @(self.game.active),
+                                @"breathing": @(self.animator.breathing)};
         if (![state writeToFile:self.statePath atomically:YES]) {
             [self stop];
             [self error:@"Could not write Logo Beat's status file."];
@@ -546,11 +599,12 @@ static float AudioLevel(const AudioBufferList *input) {
     NSApp.applicationIconImage = appIcon;
     self.animator = [LBAnimator new];
     self.game = [LBRhythmGame new];
+    self.loginService = SMAppService.mainAppService;
     NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
     [defaults registerDefaults:@{@"animationMode": @(LBAnimationVolume), @"mood": @(LBMoodParty),
                                  @"idleBreathing": @NO, @"dancingIcon": @YES}];
     NSInteger mode = [defaults integerForKey:@"animationMode"], mood = [defaults integerForKey:@"mood"];
-    if (mode < LBAnimationVolume || mode > LBAnimationBreathing || mood < LBMoodChill || mood > LBMoodHeartbeat) {
+    if (mode < LBAnimationVolume || mode > LBAnimationAutomatic || mood < LBMoodChill || mood > LBMoodHeartbeat) {
         NSLog(@"Invalid animation preferences; resetting mode and mood.");
         mode = LBAnimationVolume;
         mood = LBMoodParty;
@@ -576,9 +630,11 @@ static float AudioLevel(const AudioBufferList *input) {
         NSMenuItem *item = [menu addItemWithTitle:entry[0] action:NSSelectorFromString(entry[1]) keyEquivalent:@""];
         item.target = self;
     }
+    NSMenuItem *login = [menu addItemWithTitle:@"Launch at login" action:@selector(toggleLaunchAtLogin) keyEquivalent:@""];
+    login.target = self;
     [menu addItem:[NSMenuItem separatorItem]];
     NSMenu *modes = [NSMenu new], *moods = [NSMenu new];
-    for (NSInteger modeIndex = LBAnimationVolume; modeIndex <= LBAnimationBreathing; modeIndex++) {
+    for (NSInteger modeIndex = LBAnimationVolume; modeIndex <= LBAnimationAutomatic; modeIndex++) {
         NSMenuItem *option = [modes addItemWithTitle:LBModeName(modeIndex) action:@selector(selectMode:) keyEquivalent:@""];
         option.tag = modeIndex;
         option.target = self;
@@ -648,6 +704,87 @@ static float AudioLevel(const AudioBufferList *input) {
 }
 @end
 
+@interface LBTestLoginService : NSObject <LBLoginService>
+@property SMAppServiceStatus status;
+@property BOOL rejectChanges;
+@property BOOL approvalRequired;
+@property NSInteger registrations;
+@property NSInteger unregistrations;
+@end
+@implementation LBTestLoginService
+- (BOOL)registerAndReturnError:(NSError **)error {
+    self.registrations++;
+    if (self.rejectChanges) {
+        if (error) *error = [NSError errorWithDomain:@"LogoBeat.TestLogin" code:1
+                                           userInfo:@{NSLocalizedDescriptionKey: @"Registration denied"}];
+        return NO;
+    }
+    self.status = self.approvalRequired ? SMAppServiceStatusRequiresApproval : SMAppServiceStatusEnabled;
+    return YES;
+}
+- (BOOL)unregisterAndReturnError:(NSError **)error {
+    self.unregistrations++;
+    if (self.rejectChanges) {
+        if (error) *error = [NSError errorWithDomain:@"LogoBeat.TestLogin" code:2
+                                           userInfo:@{NSLocalizedDescriptionKey: @"Unregistration denied"}];
+        return NO;
+    }
+    self.status = SMAppServiceStatusNotRegistered;
+    return YES;
+}
+@end
+
+@interface LBTestLoginController : LogoBeat
+@property NSString *loginMessage;
+@end
+@implementation LBTestLoginController
+- (void)showLoginMessage:(NSString *)message {
+    self.loginMessage = message;
+}
+@end
+
+static BOOL RunLoginItemTests(void) {
+    LBTestLoginController *controller = [LBTestLoginController new];
+    LBTestLoginService *service = [LBTestLoginService new];
+    controller.loginService = service;
+    controller.running = YES;
+    NSMenu *menu = [NSMenu new];
+    NSMenuItem *item = [menu addItemWithTitle:@"Launch at login" action:@selector(toggleLaunchAtLogin)
+                              keyEquivalent:@""];
+    item.target = controller;
+    [menu update];
+    if (!item.enabled || item.state != NSControlStateValueOff || service.registrations != 0) return NO;
+    [controller toggleLaunchAtLogin];
+    [menu update];
+    if (item.state != NSControlStateValueOn || service.registrations != 1) return NO;
+    service.rejectChanges = YES;
+    [controller toggleLaunchAtLogin];
+    [menu update];
+    if (!controller.loginMessage || item.state != NSControlStateValueOn || !controller.running) return NO;
+    service.rejectChanges = NO;
+    [controller toggleLaunchAtLogin];
+    [menu update];
+    if (item.state != NSControlStateValueOff) return NO;
+    service.approvalRequired = YES;
+    [controller toggleLaunchAtLogin];
+    [menu update];
+    if (item.state != NSControlStateValueMixed || ![item.title containsString:@"approval"] ||
+        ![controller.loginMessage containsString:@"System Settings"]) return NO;
+    [controller toggleLaunchAtLogin];
+    [menu update];
+    if (item.state != NSControlStateValueOff) return NO;
+    service.rejectChanges = YES;
+    [controller toggleLaunchAtLogin];
+    [menu update];
+    if (item.state != NSControlStateValueOff || ![controller.loginMessage containsString:@"denied"]) return NO;
+    service.status = SMAppServiceStatusNotFound;
+    [menu update];
+    if (item.enabled) return NO;
+    service.status = SMAppServiceStatusEnabled;
+    [menu update];
+    return item.enabled && item.state == NSControlStateValueOn;
+}
+
 static BOOL RunControllerTests(void) {
     NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
     NSError *error = nil;
@@ -667,7 +804,7 @@ static BOOL RunControllerTests(void) {
     controller.backupPath = [directory stringByAppendingPathComponent:@"original.plist"];
     controller.statePath = [directory stringByAppendingPathComponent:@"status.plist"];
     BOOL passed = YES;
-    for (NSInteger mode = LBAnimationVolume; mode <= LBAnimationBreathing; mode++) {
+    for (NSInteger mode = LBAnimationVolume; mode <= LBAnimationAutomatic; mode++) {
         controller.running = YES;
         controller.animator.mode = mode;
         [controller.animator resetAtTime:0];
@@ -679,6 +816,17 @@ static BOOL RunControllerTests(void) {
         passed = passed && controller.original == nil && [client.mapping isEqual:baseline] &&
             ![NSFileManager.defaultManager fileExistsAtPath:controller.backupPath];
     }
+    controller.running = YES;
+    controller.animator.mode = LBAnimationAutomatic;
+    [controller.animator resetAtTime:0];
+    [controller advanceWithLevel:0 atTime:0.05];
+    passed = passed && controller.animator.breathing && controller.original != nil;
+    [controller advanceWithLevel:0.2 atTime:0.1];
+    passed = passed && !controller.animator.breathing && controller.original != nil;
+    [controller advanceWithLevel:0 atTime:1.2];
+    passed = passed && controller.animator.breathing && controller.original != nil;
+    [controller stop];
+    passed = passed && [client.mapping isEqual:baseline] && controller.original == nil;
     controller.running = YES;
     controller.animator.mode = LBAnimationVolume;
     [controller.animator resetAtTime:0];
@@ -767,8 +915,8 @@ int main(int argc, const char *argv[]) {
             [menu update];
             if (!morse.enabled || !cancel.enabled) return 12;
             NSString *previewPath = argc > 2 ? [NSString stringWithUTF8String:argv[2]] : nil;
-            if (!LBRunPlayfulTests(previewPath) || !RunControllerTests()) return 10;
-            puts("Self-test passed: brightness, audio processing, menu validation, playful animations, Morse and rhythm scoring.");
+            if (!LBRunPlayfulTests(previewPath) || !RunControllerTests() || !RunLoginItemTests()) return 10;
+            puts("Self-test passed: brightness, audio, menus, animations, Morse, rhythm, automatic switching and login-item state.");
             return 0;
         }
         NSApplication *app = NSApplication.sharedApplication;

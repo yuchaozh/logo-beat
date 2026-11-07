@@ -3,7 +3,8 @@
 typedef NS_ENUM(NSInteger, LBAnimationMode) {
     LBAnimationVolume,
     LBAnimationDJ,
-    LBAnimationBreathing
+    LBAnimationBreathing,
+    LBAnimationAutomatic
 };
 
 typedef NS_ENUM(NSInteger, LBMood) {
@@ -27,6 +28,7 @@ NSImage *LBWaveformIcon(double level, double time);
 @property(readonly) double lastBeat;
 @property(readonly) BOOL detectedBeat;
 @property(readonly) BOOL controlsLight;
+@property(readonly) BOOL breathing;
 @property(readonly) BOOL morseActive;
 @property(readonly) double morseRemaining;
 - (void)resetAtTime:(double)time;

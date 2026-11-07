@@ -10,6 +10,7 @@ NSString *LBModeName(LBAnimationMode mode) {
         case LBAnimationVolume: return @"Volume";
         case LBAnimationDJ: return @"DJ pulses";
         case LBAnimationBreathing: return @"Breathing Mac";
+        case LBAnimationAutomatic: return @"Automatic";
     }
     return @"Unknown mode";
 }
@@ -94,6 +95,7 @@ static NSArray<LBMorseStep *> *EncodeMorse(NSString *text, NSError **error) {
 @property double lastBeat;
 @property BOOL detectedBeat;
 @property BOOL controlsLight;
+@property BOOL breathing;
 @property double reference;
 @property double previousLevel;
 @property double lastSound;
@@ -125,6 +127,7 @@ static NSArray<LBMorseStep *> *EncodeMorse(NSString *text, NSError **error) {
     self.lastBeat = -INFINITY;
     self.detectedBeat = NO;
     self.controlsLight = NO;
+    self.breathing = NO;
     [self cancelMorse];
 }
 
@@ -173,7 +176,8 @@ static NSArray<LBMorseStep *> *EncodeMorse(NSString *text, NSError **error) {
     self.previousLevel = level;
     BOOL silent = time - self.lastSound > 1;
     self.audioStrength = silent ? 0 : LBNormalizedAudio(level, self.reference);
-    self.controlsLight = !silent || self.idleBreathing || self.mode == LBAnimationBreathing;
+    self.controlsLight = !silent || self.idleBreathing ||
+        self.mode == LBAnimationBreathing || self.mode == LBAnimationAutomatic;
     double target = self.audioStrength;
     if (silent) {
         self.reference = 0;
@@ -182,7 +186,7 @@ static NSArray<LBMorseStep *> *EncodeMorse(NSString *text, NSError **error) {
         double age = time - self.lastBeat;
         double pulse = exp(-age / 0.25) + 0.7 * exp(-pow((age - 0.4) / 0.16, 2));
         target = fmin(1, 0.1 + self.audioStrength * 0.2 + pulse * 0.7);
-    } else if (self.mode == LBAnimationDJ) {
+    } else if (self.mode == LBAnimationDJ || self.mode == LBAnimationAutomatic) {
         target = fmin(1, 0.1 + self.audioStrength * 0.3 + 0.7 * exp(-(time - self.lastBeat) / 0.35));
     }
     if (self.morseActive) {
@@ -202,6 +206,7 @@ static NSArray<LBMorseStep *> *EncodeMorse(NSString *text, NSError **error) {
             }
         }
     }
+    self.breathing = silent && self.controlsLight && !self.morseActive;
     double smoothing = self.mood == LBMoodChill ? (target > self.output ? 0.25 : 0.65) : 0.12;
     double delta = (target - self.output) * (1 - exp(-dt / smoothing));
     // Bound the transition rate even for DJ and Morse effects; never hard-strobe.
@@ -390,6 +395,25 @@ BOOL LBRunPlayfulTests(NSString *previewPath) {
     [animator updateLevel:0 atTime:2.1];
     CHECK(animator.controlsLight);
     animator.idleBreathing = NO;
+    animator.mode = LBAnimationAutomatic;
+    [animator resetAtTime:0];
+    [animator updateLevel:0 atTime:0.05];
+    CHECK(animator.breathing && animator.controlsLight);
+    [animator updateLevel:0.2 atTime:0.1];
+    CHECK(!animator.breathing && animator.audioStrength > 0 && animator.controlsLight);
+    [animator updateLevel:0 atTime:0.2];
+    CHECK(!animator.breathing);
+    [animator updateLevel:0 atTime:1.2];
+    CHECK(animator.breathing && animator.controlsLight);
+    [animator updateLevel:0.4 atTime:1.25];
+    CHECK(!animator.breathing && animator.audioStrength > 0);
+    [animator sendMorse:@"E" atTime:2 error:NULL];
+    [animator updateLevel:0 atTime:2.3];
+    CHECK(animator.morseActive && !animator.breathing);
+    [animator updateLevel:0 atTime:2.7];
+    CHECK(!animator.morseActive && animator.breathing);
+    [animator resetAtTime:3];
+    CHECK(!animator.controlsLight && !animator.breathing);
     [animator resetAtTime:0];
     animator.mode = LBAnimationDJ;
     [animator updateLevel:0.1 atTime:0.05];
