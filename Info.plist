@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key><string>LogoBeat</string>
+    <key>CFBundleIdentifier</key><string>local.logobeat</string>
+    <key>CFBundleName</key><string>Logo Beat</string>
+    <key>CFBundlePackageType</key><string>APPL</string>
+    <key>CFBundleIconFile</key><string>LogoBeat.icns</string>
+    <key>NSHumanReadableCopyright</key><string>Logo Beat</string>
+    <key>CFBundleVersion</key><string>3</string>
+    <key>CFBundleShortVersionString</key><string>1.1.1</string>
+    <key>LSMinimumSystemVersion</key><string>14.4</string>
+    <key>LSUIElement</key><true/>
+    <key>NSAudioCaptureUsageDescription</key>
+    <string>Logo Beat measures system playback volume to animate the Apple logo. Audio is processed locally and is never recorded or transmitted.</string>
+</dict>
+</plist>
