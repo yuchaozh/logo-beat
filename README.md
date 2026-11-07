@@ -49,8 +49,44 @@ then choose **Start** from the waveform icon in the menu bar.
 - After sleep, screen sleep, or locking the Mac, choose **Start** to resume.
   Low Power Mode prevents starting.
 
-The app starts listening when opened. Silence lasting more than one second
-restores the normal brightness mapping while listening continues.
+The app starts listening when opened. By default, silence lasting more than
+one second restores the normal brightness mapping while listening continues.
+
+## Playground and light effects
+
+| Feature | How to use it |
+| --- | --- |
+| DJ pulses | Choose **Animation > DJ pulses** for softened pulses on detected audio onsets, with a quieter glow between them. |
+| Breathing Mac | Choose **Animation > Breathing Mac** to follow music and breathe gently during silence. Alternatively, enable **Breathe when music pauses** for any mode. |
+| Mood presets | Choose **Chill** for slower transitions and a 180-nit ceiling, **Party** for DJ pulses up to 300 nits, or **Heartbeat** for paired swells up to 240 nits. |
+| Dancing icon | The menu-bar waveform bounces with playback volume. Toggle **Dancing menu-bar icon** to return to a static icon. |
+| Rhythm game | Choose **Play rhythm game...**, play music, and press Space or click **Tap** when the ring swells. Earn timing points and combos; held-key repeats do not score. |
+| Morse messages | Choose **Send Morse message...** and enter 1-24 English letters, digits, or spaces. **Cancel Morse message** returns to the chosen effect. |
+| MacBook preview | **Open Playground...** shows a miniature MacBook light show, audio bars, requested brightness, and game feedback. |
+
+Mood presets also select a matching animation: Chill and Heartbeat use Volume;
+Party uses DJ pulses. You can change the animation afterward. Animation, mood,
+idle-breathing, and dancing-icon preferences are saved locally.
+
+The rhythm game uses audio-onset detection, not exact musical tempo analysis.
+Some tracks or notification sounds can trigger unexpected beats. Only the
+Playground window handles Space: there is no global keyboard monitoring.
+Closing it ends the game without stopping logo control. A new game resets the
+score; missed beats or unmatched taps break the combo.
+
+Morse messages temporarily override the music effect and return to it when
+finished. Dots use a 0.65-second unit, dashes three units, with standard
+symbol/letter/word gaps. Transitions are softened, so this is decorative Morse
+and not precision signaling. Apple light limits can reduce its contrast.
+Messages are kept only as an in-memory sequence and are never logged or
+saved, but the visible pattern is not private or encrypted.
+
+All effects use the existing brightness mapping and restoration path.
+Breathing and Morse continue controlling the logo during silence when
+explicitly selected; **Stop and restore** or **Quit** cancels them and releases
+the light. Detected pulses are rate-limited and brightness transitions are
+smoothed instead of hard-strobing. This does not certify the effects as safe
+for photosensitive viewers; stop the app if the animation causes discomfort.
 
 ## Behavior, privacy, and limitations
 
@@ -71,11 +107,13 @@ nor transmitted. The app contains no network requests.
 Local runtime files live in `~/Library/Application Support/LogoBeat/`:
 
 - `original-mapping.plist`: the original mapping, saved before modification.
-- `status.plist`: running state, callback count, recent audio level, and
-  requested brightness. This contains numeric diagnostics, not audio samples.
+- `status.plist`: running state, callback count, recent audio level, requested
+  brightness, selected effect/mood, and game/Morse activity. This contains
+  diagnostics, not audio samples or message text.
 - `app.log`: startup, stop, restoration, and error messages.
 
-These files are outside this repository and are not uploaded.
+Preferences are saved in the local `local.logobeat` defaults domain.
+These files and preferences are outside this repository and are not uploaded.
 
 Private APIs may change with macOS updates. A crash or forced termination can
 leave the logo mapping changed until the next launch attempts restoration.
@@ -88,6 +126,7 @@ choice, and no safety certification or warranty is provided.
 | File | Purpose |
 | --- | --- |
 | `main.m` | Menu-bar UI, audio capture, adaptive brightness, and restoration |
+| `Playful.h`, `Playful.m` | Animation engine, Morse timing, rhythm scoring, dancing icon, and MacBook preview |
 | `make-icon.m` | Generates the original waveform app icon using AppKit |
 | `Info.plist` | App identity, icon metadata, and audio permission description |
 | `build.sh` | Native build, signing, icon generation, and self-tests |
@@ -97,6 +136,14 @@ Run the installed app's self-tests without starting capture:
 ```bash
 "$HOME/Applications/Logo Beat.app/Contents/MacOS/LogoBeat" --self-test
 ```
+
+The tests cover mode behavior, brightness bounds, transition pacing, Morse
+encoding and cancellation, rhythm scoring, repeat-key handling, native menu
+validation, and controller restoration using a fake brightness client. They
+do not open a window, capture playback, or modify the real logo.
+`build.sh` also renders an off-screen preview to
+`build/playground-preview.png`. A live check on supported hardware is still
+needed to assess timing, room-light limitations, and the complete window UX.
 
 ## References
 
